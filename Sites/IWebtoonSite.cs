@@ -1,5 +1,3 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Playwright;
 using Webtoon_Downloader.Models;
 
@@ -11,5 +9,7 @@ public interface IWebtoonSite
 
     Uri NormalizeUrl(Uri url);
 
-    Task<WebtoonInfo> ExtractAsync(IPage page, Uri url);
+    Task<WebtoonListInfo> ExtractListAsync(IPage page, Uri url);
+
+    Task<string> ExtractFirstImageUrlAsync(IPage page);
 }

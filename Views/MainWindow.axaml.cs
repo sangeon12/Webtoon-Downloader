@@ -1,5 +1,8 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
+using System.Linq;
+using Avalonia.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -7,13 +10,17 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Webtoon_Downloader.Sites;
 using Microsoft.Playwright;
+using Webtoon_Downloader.Models;
 using Webtoon_Downloader.Services;
+using Webtoon_Downloader.Models;
+using Webtoon_Downloader.ViewModels;
 
 namespace Webtoon_Downloader.Views;
 
 public partial class MainWindow : Window
 {
-    private readonly BrowserService _browserService = new();
+    private readonly BrowserService _browserService = new(browserCount: 8);
+    private readonly WebtoonExtractionService _extractionService;
     private bool _isOpening;
 
     protected override async void OnClosed(EventArgs e)
@@ -26,6 +33,48 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        _extractionService = new WebtoonExtractionService(
+            _browserService
+        );
+
+        Opened += MainWindow_Opened;
+    }
+
+    private async void MainWindow_Opened(
+        object? sender,
+        EventArgs e)
+    {
+        try
+        {
+            WebtoonPathService.Initialize();
+
+            RefreshWebtoonList();
+        }
+        catch (Exception ex)
+        {
+            await ShowAlertAsync(
+                $"웹툰 경로 초기화 실패: {ex.Message}"
+            );
+        }
+    }
+
+    private void RefreshWebtoonList()
+    {
+        if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        string[] directories =
+            WebtoonPathService.GetWebtoonDirectories();
+
+        vm.WebtoonTitles.Clear();
+
+        foreach (string directory in directories)
+        {
+            vm.WebtoonTitles.Add(
+                Path.GetFileName(directory)
+            );
+        }
     }
 
     private async void ConfirmButton_Click(
@@ -54,9 +103,12 @@ public partial class MainWindow : Window
 
         string input = UrlInput.Text?.Trim() ?? "";
 
-        if (!Uri.TryCreate(input, UriKind.Absolute, out var url)
-            || (url.Scheme != Uri.UriSchemeHttps
-                && url.Scheme != Uri.UriSchemeHttp))
+        if (!Uri.TryCreate(
+            input,
+            UriKind.Absolute,
+            out var url
+        ) || (url.Scheme != Uri.UriSchemeHttps
+            && url.Scheme != Uri.UriSchemeHttp))
         {
             await ShowAlertAsync("올바른 URL을 입력해주세요.");
             return;
@@ -71,21 +123,105 @@ public partial class MainWindow : Window
         }
 
         _isOpening = true;
+        bool showProgress = true;
 
         try
         {
-            Uri targetUrl = site.NormalizeUrl(url);
+            if (DataContext is MainWindowViewModel startVm)
+            {
+                startVm.IsBusy = true;
+                startVm.IsNotBusy = false;
+                startVm.Progress = 0;
+                startVm.StatusText = "웹툰 정보 수집 중...";
+            }
 
-            var page = await _browserService.OpenAsync(targetUrl);
-            //var info = await site.ExtractAsync(page, url);
+            using var downloader = new WebtoonDownloader();
+
+            WebtoonBatchResult result =
+                await _extractionService.ExtractAndDownloadAsync(
+                    site,
+                    url,
+                    downloader,
+                    progress =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            if (!showProgress)
+                                return;
+
+                            if (DataContext is MainWindowViewModel vm)
+                            {
+                                vm.Progress =
+                                    (progress.Completed + progress.Failed)
+                                    * 100.0 / progress.Total;
+
+                                vm.StatusText =
+                                    $"전체 {progress.Total}화 | " +
+                                    $"완료 {progress.Completed}화 | " +
+                                    $"실패 {progress.Failed}화";
+                            }
+                        });
+                    }
+                );
+
+            showProgress = false;
+
+            if (DataContext is MainWindowViewModel resultVm)
+            {
+                resultVm.Progress = 100;
+
+                resultVm.StatusText =
+                    $"작업 종료 | 성공 {result.Completed}화 | " +
+                    $"실패 {result.Failed}화";
+            }
+
+            if (result.Failed == 0)
+            {
+                RefreshWebtoonList();
+            
+                if (DataContext is MainWindowViewModel vm)
+                {
+                    vm.StatusText =
+                        $"{result.Info.Title} - 전체 다운로드 완료";
+            
+                    vm.WebtoonUrl = "";
+                }
+            }
+            else
+            {
+                string errors = string.Join(
+                    "\n",
+                    result.Failures
+                        .Take(5)
+                        .Select(x => $"{x.Number}화: {x.Error}")
+                );
+
+                await ShowAlertAsync(
+                    $"다운로드 실패: {result.Failed}개 회차\n\n{errors}"
+                );
+            }
         }
         catch (Exception ex)
         {
-            await ShowAlertAsync($"브라우저 실행 오류: {ex.Message}");
+            showProgress = false;
+
+            if (DataContext is MainWindowViewModel errorVm)
+                errorVm.StatusText = "다운로드 실패";
+
+            await ShowAlertAsync(
+                $"작업 중 오류가 발생했습니다.\n{ex.Message}"
+            );
         }
         finally
         {
+            showProgress = false;
             _isOpening = false;
+
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.IsBusy = false;
+                vm.IsNotBusy = true;
+            }
         }
     }
 

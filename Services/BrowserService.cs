@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Playwright;
 
@@ -6,70 +8,114 @@ namespace Webtoon_Downloader.Services;
 
 public sealed class BrowserService : IAsyncDisposable
 {
+    private readonly int _browserCount;
+    private readonly List<IBrowser> _browsers = new();
+    private readonly List<SemaphoreSlim> _browserLocks = new();
+    private readonly SemaphoreSlim _initializeLock = new(1, 1);
+
     private IPlaywright? _playwright;
-    private IBrowser? _browser;
-    private IBrowserContext? _context;
+    private int _nextBrowser = -1;
 
-    public IPage? Page { get; private set; }
-
-    public async Task<IPage> OpenAsync(Uri url)
+    public BrowserService(int browserCount = 8)
     {
-        await CloseAsync();
+        if (browserCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(browserCount));
+
+        _browserCount = browserCount;
+    }
+
+    public async Task PrepareAsync(int count)
+    {
+        if (count < 1 || count > _browserCount)
+            throw new ArgumentOutOfRangeException(nameof(count));
+
+        await _initializeLock.WaitAsync();
 
         try
         {
-            _playwright = await Playwright.CreateAsync();
+            _playwright ??= await Playwright.CreateAsync();
 
-            _browser = await _playwright.Chromium.LaunchAsync(
-                new BrowserTypeLaunchOptions
-                {
-                    Headless = false
-                }
-            );
+            while (_browsers.Count < count)
+            {
+                var browser = await _playwright.Chromium.LaunchAsync(
+                    new BrowserTypeLaunchOptions
+                    {
+                        Headless = true
+                    }
+                );
 
-            _context = await _browser.NewContextAsync();
-
-            Page = await _context.NewPageAsync();
-
-            await Page.GotoAsync(
-                url.ToString(),
-                new PageGotoOptions
-                {
-                    WaitUntil = WaitUntilState.DOMContentLoaded
-                }
-            );
-
-            return Page;
+                _browsers.Add(browser);
+                _browserLocks.Add(new SemaphoreSlim(1, 1));
+            }
         }
-        catch
+        finally
         {
-            await CloseAsync();
-            throw;
+            _initializeLock.Release();
         }
     }
 
-    public async Task CloseAsync()
+    public async Task<T> RunPageAsync<T>(
+        Uri url,
+        Func<IPage, Task<T>> operation)
     {
-        Page = null;
+        if (_browsers.Count == 0)
+            await PrepareAsync(1);
 
-        if (_context != null)
+        int index = (int)(
+            (uint)Interlocked.Increment(ref _nextBrowser)
+            % (uint)_browsers.Count
+        );
+
+        var browserLock = _browserLocks[index];
+
+        await browserLock.WaitAsync();
+
+        try
         {
-            await _context.CloseAsync();
-            _context = null;
-        }
+            var context = await _browsers[index].NewContextAsync();
 
-        if (_browser != null)
+            try
+            {
+                var page = await context.NewPageAsync();
+
+                await page.GotoAsync(
+                    url.ToString(),
+                    new PageGotoOptions
+                    {
+                        WaitUntil = WaitUntilState.Commit
+                    }
+                );
+
+                return await operation(page);
+            }
+            finally
+            {
+                await context.CloseAsync();
+            }
+        }
+        finally
         {
-            await _browser.CloseAsync();
-            _browser = null;
+            browserLock.Release();
         }
-
-        _playwright?.Dispose();
-        _playwright = null;
     }
 
     public async ValueTask DisposeAsync()
     {
-        await CloseAsync();
+        await _initializeLock.WaitAsync();
+
+        try
+        {
+            foreach (var browser in _browsers)
+                await browser.CloseAsync();
+
+            _browsers.Clear();
+
+            _playwright?.Dispose();
+            _playwright = null;
+        }
+        finally
+        {
+            _initializeLock.Release();
+        }
     }
 }
