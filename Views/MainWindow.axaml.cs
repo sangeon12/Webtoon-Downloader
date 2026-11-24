@@ -12,7 +12,6 @@ using Webtoon_Downloader.Sites;
 using Microsoft.Playwright;
 using Webtoon_Downloader.Models;
 using Webtoon_Downloader.Services;
-using Webtoon_Downloader.Models;
 using Webtoon_Downloader.ViewModels;
 
 namespace Webtoon_Downloader.Views;
@@ -41,6 +40,85 @@ public partial class MainWindow : Window
         Opened += MainWindow_Opened;
     }
 
+    private async void Webtoon_DoubleTapped(
+        object? sender,
+        TappedEventArgs e)
+    {
+        if (sender is not Border border ||
+            border.DataContext is not StoredWebtoon webtoon)
+            return;
+
+        if (!Directory.Exists(webtoon.Directory))
+        {
+            await ShowAlertAsync("웹툰 폴더를 찾을 수 없습니다.");
+            RefreshWebtoonList();
+            return;
+        }
+
+        try
+        {
+            var selection = new RegionSelectionWindow();
+
+            PixelRect? region =
+                await selection.ShowDialog<PixelRect?>(this);
+
+            if (region == null)
+                return;
+
+            var viewer = new StealthViewerWindow(
+                webtoon,
+                region.Value
+            );
+
+            viewer.ReselectRequested += async (_, _) =>
+            {
+                await ReselectViewerAsync(viewer);
+            };
+
+            viewer.Closed += (_, _) =>
+            {
+                WindowState = WindowState.Normal;
+                Activate();
+                RefreshWebtoonList();
+            };
+
+            viewer.Show();
+
+            WindowState = WindowState.Minimized;
+            viewer.Activate();
+        }
+        catch (Exception ex)
+        {
+            WindowState = WindowState.Normal;
+
+            await ShowAlertAsync(
+                $"뷰어 실행 실패: {ex.Message}"
+            );
+        }
+    }
+
+    private async Task ReselectViewerAsync(
+        StealthViewerWindow viewer)
+    {
+        viewer.Opacity = 0;
+
+        try
+        {
+            var selection = new RegionSelectionWindow();
+
+            PixelRect? region =
+                await selection.ShowDialog<PixelRect?>(viewer);
+
+            if (region != null)
+                viewer.SetRegion(region.Value);
+        }
+        finally
+        {
+            viewer.Opacity = 1;
+            viewer.Activate();
+        }
+    }
+
     private async void MainWindow_Opened(
         object? sender,
         EventArgs e)
@@ -64,16 +142,69 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel vm)
             return;
 
-        string[] directories =
-            WebtoonPathService.GetWebtoonDirectories();
-
         vm.WebtoonTitles.Clear();
 
-        foreach (string directory in directories)
+        foreach (var webtoon in WebtoonLibraryService.GetWebtoons())
+            vm.WebtoonTitles.Add(webtoon);
+    }
+
+    private async void DeleteWebtoon_Click(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        if (sender is not Button button ||
+            button.DataContext is not StoredWebtoon webtoon)
+            return;
+    
+        var dialog = new Window
         {
-            vm.WebtoonTitles.Add(
-                Path.GetFileName(directory)
-            );
+            Title = "웹툰 삭제",
+            Width = 350,
+            Height = 160,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+    
+        var yes = new Button { Content = "Yes", MinWidth = 70 };
+        var no = new Button { Content = "No", MinWidth = 70, IsDefault = true };
+    
+        yes.Click += (_, _) => dialog.Close(true);
+        no.Click += (_, _) => dialog.Close(false);
+    
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(20),
+            Spacing = 16,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = $"{webtoon.Title}을(를) 삭제하시겠습니까?",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                },
+                new StackPanel
+                {
+                    Orientation = Avalonia.Layout.Orientation.Horizontal,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { no, yes }
+                }
+            }
+        };
+    
+        bool confirmed = await dialog.ShowDialog<bool>(this);
+    
+        if (!confirmed)
+            return;
+    
+        try
+        {
+            WebtoonLibraryService.DeleteWebtoon(webtoon);
+            RefreshWebtoonList();
+        }
+        catch (Exception ex)
+        {
+            await ShowAlertAsync($"웹툰 삭제 실패: {ex.Message}");
         }
     }
 
@@ -178,12 +309,12 @@ public partial class MainWindow : Window
             if (result.Failed == 0)
             {
                 RefreshWebtoonList();
-            
+
                 if (DataContext is MainWindowViewModel vm)
                 {
                     vm.StatusText =
                         $"{result.Info.Title} - 전체 다운로드 완료";
-            
+
                     vm.WebtoonUrl = "";
                 }
             }
