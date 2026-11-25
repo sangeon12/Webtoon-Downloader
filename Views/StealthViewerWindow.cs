@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Diagnostics;
+using Avalonia.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -29,6 +31,17 @@ public sealed class StealthViewerWindow : Window
     private double _opacity = 1;
 
     public event EventHandler? ReselectRequested;
+
+    private readonly ChromiumScrollEngine _scrollEngine = new(0);
+
+    private readonly DispatcherTimer _scrollTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(16)
+    };
+
+    private readonly Stopwatch _scrollClock = new();
+
+    private const double WheelScrollDistance = 120;
 
     public StealthViewerWindow(
         StoredWebtoon webtoon,
@@ -82,6 +95,34 @@ public sealed class StealthViewerWindow : Window
 
         Opened += (_, _) => Activate();
         Closed += (_, _) => ClearImages();
+
+        _scrollEngine.OnScrollUpdated += position =>
+        {
+            if (_scrollViewer != null)
+            {
+                _scrollViewer.Offset = new Vector(
+                    0,
+                    position
+                );
+            }
+        };
+
+        _scrollTimer.Tick += (_, _) =>
+        {
+            double deltaTime = _scrollClock.Elapsed.TotalSeconds;
+
+            _scrollClock.Restart();
+
+            _scrollEngine.UpdateFrame(
+                Math.Min(deltaTime, 0.05)
+            );
+
+            if (!_scrollEngine.IsAnimating)
+            {
+                _scrollTimer.Stop();
+                _scrollClock.Stop();
+            }
+        };
     }
 
     public void SetRegion(PixelRect region)
@@ -102,6 +143,10 @@ public sealed class StealthViewerWindow : Window
     private void ShowEpisodeList()
     {
         ClearImages();
+
+        _scrollTimer.Stop();
+        _scrollClock.Stop();
+        _scrollEngine.Reset(0, 0);
 
         _showList = true;
         _scrollViewer = null;
@@ -131,6 +176,10 @@ public sealed class StealthViewerWindow : Window
         if (index < 0 || index >= _episodes.Count)
             return;
 
+        _scrollTimer.Stop();
+        _scrollClock.Stop();
+        _scrollEngine.Reset(0, 0);
+
         _content.Content = null;
         ClearImages();
 
@@ -157,7 +206,9 @@ public sealed class StealthViewerWindow : Window
                     Source = bitmap,
                     Width = Width,
                     Stretch = Stretch.Uniform,
-                    HorizontalAlignment = HorizontalAlignment.Center
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    UseLayoutRounding = true,
+                    Margin = new Thickness(0, 0, 0, -1)
                 });
             }
             catch
@@ -216,19 +267,41 @@ public sealed class StealthViewerWindow : Window
             OpenEpisode(_currentEpisode - 1);
             e.Handled = true;
         }
-        else if (e.Key == Key.B)
+        else if (e.Key == Key.D)
         {
             OpenEpisode(_currentEpisode + 1);
             e.Handled = true;
         }
-        else if (e.Key == Key.Down)
-        {
-            ScrollImages(100);
-            e.Handled = true;
-        }
         else if (e.Key == Key.Up)
         {
-            ScrollImages(-100);
+            ScrollImages(-250);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Down)
+        {
+            ScrollImages(250);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Left)
+        {
+            _opacity = Math.Clamp(
+                Math.Round(_opacity * 10) / 10 - 0.1,
+                0.1,
+                1.0
+            );
+
+            _panel.Opacity = _opacity;
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Right)
+        {
+            _opacity = Math.Clamp(
+                Math.Round(_opacity * 10) / 10 + 0.1,
+                0.1,
+                1.0
+            );
+
+            _panel.Opacity = _opacity;
             e.Handled = true;
         }
     }
@@ -237,6 +310,9 @@ public sealed class StealthViewerWindow : Window
     {
         if (_scrollViewer == null)
             return;
+
+        _scrollTimer.Stop();
+        _scrollClock.Stop();
 
         double maximum = Math.Max(
             0,
@@ -251,23 +327,61 @@ public sealed class StealthViewerWindow : Window
         );
 
         _scrollViewer.Offset = new Vector(0, next);
+
+        _scrollEngine.Reset(next, maximum);
     }
 
     private void HandleWheel(
         object? sender,
         PointerWheelEventArgs e)
     {
-        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        if (_showList || _scrollViewer == null)
             return;
 
-        _opacity = Math.Clamp(
-            _opacity + e.Delta.Y * 0.05,
-            0.1,
-            1.0
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            _opacity = Math.Clamp(
+                _opacity + e.Delta.Y * 0.05,
+                0.1,
+                1.0
+            );
+
+            _panel.Opacity = _opacity;
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Delta.Y == 0)
+            return;
+
+        e.Handled = true;
+
+        double maximum = Math.Max(
+            0,
+            _scrollViewer.Extent.Height -
+            _scrollViewer.Viewport.Height
         );
 
-        _panel.Opacity = _opacity;
-        e.Handled = true;
+        _scrollEngine.MaxScrollY = maximum;
+
+        if (!_scrollEngine.IsAnimating)
+        {
+            _scrollEngine.Reset(
+                _scrollViewer.Offset.Y,
+                maximum
+            );
+        }
+
+        _scrollEngine.OnWheelInput(
+            -e.Delta.Y * WheelScrollDistance
+        );
+
+        if (_scrollEngine.IsAnimating &&
+            !_scrollTimer.IsEnabled)
+        {
+            _scrollClock.Restart();
+            _scrollTimer.Start();
+        }
     }
 
     private void HandlePointer(

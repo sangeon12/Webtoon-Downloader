@@ -55,12 +55,27 @@ public partial class MainWindow : Window
             return;
         }
 
+        bool viewerOpened = false;
+
         try
         {
+            Hide();
+
             var selection = new RegionSelectionWindow();
 
-            PixelRect? region =
-                await selection.ShowDialog<PixelRect?>(this);
+            var completion = new TaskCompletionSource<PixelRect?>();
+            
+            selection.Closed += (_, _) =>
+            {
+                completion.TrySetResult(
+                    selection.SelectedRegion
+                );
+            };
+            
+            selection.Show();
+            selection.Activate();
+            
+            PixelRect? region = await completion.Task;
 
             if (region == null)
                 return;
@@ -77,23 +92,31 @@ public partial class MainWindow : Window
 
             viewer.Closed += (_, _) =>
             {
+                Show();
                 WindowState = WindowState.Normal;
                 Activate();
                 RefreshWebtoonList();
             };
 
             viewer.Show();
-
-            WindowState = WindowState.Minimized;
             viewer.Activate();
+
+            viewerOpened = true;
         }
         catch (Exception ex)
         {
-            WindowState = WindowState.Normal;
-
             await ShowAlertAsync(
                 $"뷰어 실행 실패: {ex.Message}"
             );
+        }
+        finally
+        {
+            if (!viewerOpened)
+            {
+                Show();
+                WindowState = WindowState.Normal;
+                Activate();
+            }
         }
     }
 
@@ -101,14 +124,25 @@ public partial class MainWindow : Window
         StealthViewerWindow viewer)
     {
         viewer.Opacity = 0;
-
+    
         try
         {
             var selection = new RegionSelectionWindow();
 
-            PixelRect? region =
-                await selection.ShowDialog<PixelRect?>(viewer);
+            var completion = new TaskCompletionSource<PixelRect?>();
 
+            selection.Closed += (_, _) =>
+            {
+                completion.TrySetResult(
+                    selection.SelectedRegion
+                );
+            };
+
+            selection.Show();
+            selection.Activate();
+
+            PixelRect? region = await completion.Task;
+    
             if (region != null)
                 viewer.SetRegion(region.Value);
         }

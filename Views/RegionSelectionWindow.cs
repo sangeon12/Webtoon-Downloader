@@ -14,6 +14,8 @@ public sealed class RegionSelectionWindow : Window
     private Point? _start;
     private double _scaling = 1;
 
+    public PixelRect? SelectedRegion { get; private set; }
+
     public RegionSelectionWindow()
     {
         Title = "영역 선택";
@@ -48,7 +50,7 @@ public sealed class RegionSelectionWindow : Window
 
             if (screen == null)
             {
-                Close(null);
+                Close();
                 return;
             }
 
@@ -110,13 +112,14 @@ public sealed class RegionSelectionWindow : Window
                 (int)Math.Round(height * _scaling)
             );
 
-            Close(bounds);
+            SelectedRegion = bounds;
+            Close();
         };
 
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape)
-                Close(null);
+                Close();
         };
     }
 
