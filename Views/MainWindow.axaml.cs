@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly BrowserService _browserService = new(browserCount: 8);
     private readonly WebtoonExtractionService _extractionService;
     private bool _isOpening;
+    private ChromiumScrollController? _webtoonListScroll;
 
     protected override async void OnClosed(EventArgs e)
     {
@@ -33,6 +34,18 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        var webtoonList = this.FindControl<ListBox>("WebtoonList");
+
+        if (webtoonList != null)
+        {
+            _webtoonListScroll = new ChromiumScrollController(webtoonList);
+        }
+        
+        Closed += (_, _) =>
+        {
+            _webtoonListScroll?.Dispose();
+        };
 
         _extractionService = new WebtoonExtractionService(
             _browserService

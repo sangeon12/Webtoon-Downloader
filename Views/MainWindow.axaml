@@ -69,7 +69,8 @@
                     BorderThickness="1"
                     CornerRadius="5">
 
-                <ListBox ItemsSource="{Binding WebtoonTitles}"
+                <ListBox x:Name="WebtoonList"
+                         ItemsSource="{Binding WebtoonTitles}"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          Margin="5">

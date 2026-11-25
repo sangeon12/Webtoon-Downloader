@@ -32,16 +32,7 @@ public sealed class StealthViewerWindow : Window
 
     public event EventHandler? ReselectRequested;
 
-    private readonly ChromiumScrollEngine _scrollEngine = new(0);
-
-    private readonly DispatcherTimer _scrollTimer = new()
-    {
-        Interval = TimeSpan.FromMilliseconds(16)
-    };
-
-    private readonly Stopwatch _scrollClock = new();
-
-    private const double WheelScrollDistance = 120;
+    private ChromiumScrollController _viewerScroll = null!;
 
     private bool _isEpisodeLoading;
     private bool _viewerClosed;
@@ -100,40 +91,13 @@ public sealed class StealthViewerWindow : Window
         Closed += (_, _) =>
         {
             _viewerClosed = true;
-        
-            _scrollTimer.Stop();
-            _scrollClock.Stop();
-        
+
+            _viewerScroll.Dispose();
+
             ClearImages();
         };
 
-        _scrollEngine.OnScrollUpdated += position =>
-        {
-            if (_scrollViewer != null)
-            {
-                _scrollViewer.Offset = new Vector(
-                    0,
-                    position
-                );
-            }
-        };
-
-        _scrollTimer.Tick += (_, _) =>
-        {
-            double deltaTime = _scrollClock.Elapsed.TotalSeconds;
-
-            _scrollClock.Restart();
-
-            _scrollEngine.UpdateFrame(
-                Math.Min(deltaTime, 0.05)
-            );
-
-            if (!_scrollEngine.IsAnimating)
-            {
-                _scrollTimer.Stop();
-                _scrollClock.Stop();
-            }
-        };
+        _viewerScroll = new ChromiumScrollController(_content);
     }
 
     public void SetRegion(PixelRect region)
@@ -157,10 +121,6 @@ public sealed class StealthViewerWindow : Window
             return;
 
         ClearImages();
-
-        _scrollTimer.Stop();
-        _scrollClock.Stop();
-        _scrollEngine.Reset(0, 0);
 
         _showList = true;
         _scrollViewer = null;
@@ -197,9 +157,7 @@ public sealed class StealthViewerWindow : Window
 
         try
         {
-            _scrollTimer.Stop();
-            _scrollClock.Stop();
-            _scrollEngine.Reset(0, 0);
+            _viewerScroll.Reset();
 
             _content.Content = null;
             ClearImages();
@@ -332,84 +290,58 @@ public sealed class StealthViewerWindow : Window
             _panel.Opacity = _opacity;
             e.Handled = true;
         }
+        else if(e.Key == Key.Space)
+        {
+            _panel.IsVisible = !_panel.IsVisible;
+            e.Handled = true;
+        }
     }
 
     private void ScrollImages(double amount)
     {
         if (_scrollViewer == null)
             return;
-
-        _scrollTimer.Stop();
-        _scrollClock.Stop();
-
+    
+        _viewerScroll.Reset();
+    
         double maximum = Math.Max(
             0,
             _scrollViewer.Extent.Height -
             _scrollViewer.Viewport.Height
         );
-
+    
         double next = Math.Clamp(
             _scrollViewer.Offset.Y + amount,
             0,
             maximum
         );
-
-        _scrollViewer.Offset = new Vector(0, next);
-
-        _scrollEngine.Reset(next, maximum);
+    
+        _scrollViewer.Offset = new Vector(
+            _scrollViewer.Offset.X,
+            next
+        );
+    
+        _viewerScroll.ResetToCurrent();
     }
 
     private void HandleWheel(
         object? sender,
         PointerWheelEventArgs e)
     {
-        if (_showList || _scrollViewer == null)
+        if (_showList)
             return;
 
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            _opacity = Math.Clamp(
-                _opacity + e.Delta.Y * 0.05,
-                0.1,
-                1.0
-            );
-
-            _panel.Opacity = _opacity;
-            e.Handled = true;
-            return;
-        }
-
-        if (e.Delta.Y == 0)
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control))
             return;
 
+        _opacity = Math.Clamp(
+            _opacity + e.Delta.Y * 0.05,
+            0.1,
+            1.0
+        );
+
+        _panel.Opacity = _opacity;
         e.Handled = true;
-
-        double maximum = Math.Max(
-            0,
-            _scrollViewer.Extent.Height -
-            _scrollViewer.Viewport.Height
-        );
-
-        _scrollEngine.MaxScrollY = maximum;
-
-        if (!_scrollEngine.IsAnimating)
-        {
-            _scrollEngine.Reset(
-                _scrollViewer.Offset.Y,
-                maximum
-            );
-        }
-
-        _scrollEngine.OnWheelInput(
-            -e.Delta.Y * WheelScrollDistance
-        );
-
-        if (_scrollEngine.IsAnimating &&
-            !_scrollTimer.IsEnabled)
-        {
-            _scrollClock.Restart();
-            _scrollTimer.Start();
-        }
     }
 
     private void HandlePointer(
