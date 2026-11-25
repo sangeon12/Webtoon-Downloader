@@ -44,7 +44,7 @@ public class NaverWebtoon : IWebtoonSite
         }
 
         return new Uri(
-            $"https://comic.naver.com/webtoon/list?titleId={titleId}"
+            $"https://comic.naver.com/webtoon/list?titleId={titleId}&page=1&sort=DESC"
         );
     }
 

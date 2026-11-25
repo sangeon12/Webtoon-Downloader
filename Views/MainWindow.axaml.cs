@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Platform.Storage;
 using Webtoon_Downloader.Sites;
 using Microsoft.Playwright;
 using Webtoon_Downloader.Models;
@@ -38,6 +39,70 @@ public partial class MainWindow : Window
         );
 
         Opened += MainWindow_Opened;
+    }
+
+    private bool _isImporting;
+
+    private async void ImportWebtoons_Click(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        if (_isImporting)
+            return;
+
+        var folders = await StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions
+            {
+                Title = "가져올 웹툰 폴더 선택",
+                AllowMultiple = true
+            }
+        );
+
+        if (folders.Count == 0)
+            return;
+
+        string[] paths = folders
+            .Select(folder => folder.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToArray();
+
+        if (paths.Length == 0)
+        {
+            await ShowAlertAsync("로컬 폴더를 선택해야 합니다.");
+            return;
+        }
+
+        _isImporting = true;
+
+        try
+        {
+            var result = await WebtoonImportService.ImportAsync(
+                paths,
+                WebtoonPathService.WebtoonsDirectory
+            );
+
+            RefreshWebtoonList();
+
+            string message = $"{result.Success}개 웹툰 가져오기 완료";
+
+            if (result.Errors.Count > 0)
+            {
+                message +=
+                    $"\n\n실패 {result.Errors.Count}개\n" +
+                    string.Join("\n", result.Errors);
+            }
+
+            await ShowAlertAsync(message);
+        }
+        catch (Exception ex)
+        {
+            await ShowAlertAsync($"가져오기 실패: {ex.Message}");
+        }
+        finally
+        {
+            _isImporting = false;
+        }
     }
 
     private async void Webtoon_DoubleTapped(
@@ -322,7 +387,7 @@ public partial class MainWindow : Window
 
                                 vm.StatusText =
                                     $"전체 {progress.Total}화 | " +
-                                    $"완료 {progress.Completed}화 | " +
+                                    $"다운로드 완료 {progress.Completed}화 | " +
                                     $"실패 {progress.Failed}화";
                             }
                         });

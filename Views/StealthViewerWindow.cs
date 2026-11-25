@@ -43,6 +43,9 @@ public sealed class StealthViewerWindow : Window
 
     private const double WheelScrollDistance = 120;
 
+    private bool _isEpisodeLoading;
+    private bool _viewerClosed;
+
     public StealthViewerWindow(
         StoredWebtoon webtoon,
         PixelRect region)
@@ -94,7 +97,15 @@ public sealed class StealthViewerWindow : Window
         ShowEpisodeList();
 
         Opened += (_, _) => Activate();
-        Closed += (_, _) => ClearImages();
+        Closed += (_, _) =>
+        {
+            _viewerClosed = true;
+        
+            _scrollTimer.Stop();
+            _scrollClock.Stop();
+        
+            ClearImages();
+        };
 
         _scrollEngine.OnScrollUpdated += position =>
         {
@@ -142,6 +153,9 @@ public sealed class StealthViewerWindow : Window
 
     private void ShowEpisodeList()
     {
+        if (_isEpisodeLoading)
+            return;
+
         ClearImages();
 
         _scrollTimer.Stop();
@@ -171,34 +185,58 @@ public sealed class StealthViewerWindow : Window
         _panel.IsVisible = true;
     }
 
-    private void OpenEpisode(int index)
+    private async void OpenEpisode(int index)
     {
+        if (_isEpisodeLoading)
+            return;
+
         if (index < 0 || index >= _episodes.Count)
             return;
 
-        _scrollTimer.Stop();
-        _scrollClock.Stop();
-        _scrollEngine.Reset(0, 0);
+        _isEpisodeLoading = true;
 
-        _content.Content = null;
-        ClearImages();
-
-        _currentEpisode = index;
-        _showList = false;
-
-        string directory = _episodes[index];
-
-        var stack = new StackPanel
+        try
         {
-            Spacing = 0,
-            Background = Brushes.Black
-        };
+            _scrollTimer.Stop();
+            _scrollClock.Stop();
+            _scrollEngine.Reset(0, 0);
 
-        foreach (string path in WebtoonLibraryService.GetImages(directory))
-        {
-            try
+            _content.Content = null;
+            ClearImages();
+
+            _currentEpisode = index;
+            _showList = false;
+
+            string directory = _episodes[index];
+
+            var stack = new StackPanel
             {
-                var bitmap = new Bitmap(path);
+                Spacing = 0,
+                Background = Brushes.Black
+            };
+
+            _scrollViewer = new ScrollViewer
+            {
+                Content = stack
+            };
+
+            _content.Content = _scrollViewer;
+
+            foreach (string path in WebtoonLibraryService.GetImages(directory))
+            {
+                if (_viewerClosed)
+                    return;
+
+                Bitmap bitmap = await Task.Run(
+                    () => new Bitmap(path)
+                );
+
+                if (_viewerClosed)
+                {
+                    bitmap.Dispose();
+                    return;
+                }
+
                 _bitmaps.Add(bitmap);
 
                 stack.Children.Add(new Image
@@ -206,31 +244,21 @@ public sealed class StealthViewerWindow : Window
                     Source = bitmap,
                     Width = Width,
                     Stretch = Stretch.Uniform,
-                    HorizontalAlignment = HorizontalAlignment.Center,
                     UseLayoutRounding = true,
                     Margin = new Thickness(0, 0, 0, -1)
                 });
             }
-            catch
-            {
-                continue;
-            }
         }
-
-        _imageStack = stack;
-
-        _scrollViewer = new ScrollViewer
+        catch (Exception ex)
         {
-            Content = stack,
-            HorizontalScrollBarVisibility =
-                Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility =
-                Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden
-        };
-
-        _content.Content = _scrollViewer;
-        _panel.IsVisible = true;
-        _scrollViewer.Offset = new Vector(0, 0);
+            System.Diagnostics.Debug.WriteLine(
+                $"이미지 로딩 실패: {ex}"
+            );
+        }
+        finally
+        {
+            _isEpisodeLoading = false;
+        }
     }
 
     private void ClearImages()
