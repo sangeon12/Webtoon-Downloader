@@ -5,6 +5,8 @@ using System.Linq;
 using System.Diagnostics;
 using Avalonia.Threading;
 using Avalonia;
+using Avalonia.Controls.Presenters;
+using Avalonia.Styling;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -131,9 +133,25 @@ public sealed class StealthViewerWindow : Window
             ItemsSource = Enumerable.Range(1, _episodes.Count)
                 .Select(i => $"{i}화")
                 .ToArray(),
+            SelectedIndex = _currentEpisode,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };
+
+        list.Styles.Add(new Style(x =>
+            x.OfType<ListBoxItem>()
+                .Class(":selected")
+                .Template()
+                .OfType<ContentPresenter>())
+        {
+            Setters =
+            {
+                new Setter(
+                    ContentPresenter.BackgroundProperty,
+                    Brush.Parse("#707070")
+                )
+            }
+        });
 
         list.SelectionChanged += (_, _) =>
         {

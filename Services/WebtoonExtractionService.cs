@@ -47,7 +47,8 @@ public sealed class WebtoonExtractionService
         IWebtoonSite site,
         Uri inputUrl,
         WebtoonDownloader downloader,
-        Action<WebtoonDownloadProgress>? onProgress = null)
+        Action<WebtoonDownloadProgress>? onProgress = null,
+        CancellationToken cancellationToken = default)
     {
         Uri targetUrl = site.NormalizeUrl(inputUrl);
 
@@ -74,39 +75,48 @@ public sealed class WebtoonExtractionService
         int completed = 0;
         int failed = 0;
 
-        async Task WorkerAsync()
+        async Task WorkerAsync(CancellationToken token)
         {
             while (true)
             {
+                token.ThrowIfCancellationRequested();
+        
                 int index = Interlocked.Increment(ref nextIndex);
-
+        
                 if (index >= total)
                     return;
-
+        
+                token.ThrowIfCancellationRequested();
+        
                 var episodeLink = list.Episodes[index];
-
+        
                 try
                 {
                     Uri episodeUrl = new Uri(episodeLink.Url);
-
+        
                     string firstImageUrl =
                         await _browserService.RunPageAsync(
                             episodeUrl,
                             page => site.ExtractFirstImageUrlAsync(page)
                         );
-
+        
+                    token.ThrowIfCancellationRequested();
+        
                     var episode = new WebtoonEpisode(
                         episodeLink.Number,
                         episodeLink.Url,
                         firstImageUrl
                     );
-
+        
                     int imageCount =
                         await downloader.DownloadEpisodeAsync(
                             list.Title,
                             episode,
                             imageNumber =>
                             {
+                                if (token.IsCancellationRequested)
+                                    return;
+                    
                                 onProgress?.Invoke(
                                     new WebtoonDownloadProgress(
                                         Volatile.Read(ref completed),
@@ -116,34 +126,48 @@ public sealed class WebtoonExtractionService
                                         imageNumber
                                     )
                                 );
-                            }
+                            },
+                            token
                         );
-
+        
+                    token.ThrowIfCancellationRequested();
+        
                     episodes.Add(episode);
-
+        
                     int completedCount =
                         Interlocked.Increment(ref completed);
-
-                    onProgress?.Invoke(
-                        new WebtoonDownloadProgress(
-                            completedCount,
-                            Volatile.Read(ref failed),
-                            total,
-                            episode.Number,
-                            imageCount
-                        )
-                    );
+        
+                    if (!token.IsCancellationRequested)
+                    {
+                        onProgress?.Invoke(
+                            new WebtoonDownloadProgress(
+                                completedCount,
+                                Volatile.Read(ref failed),
+                                total,
+                                episode.Number,
+                                imageCount
+                            )
+                        );
+                    }
+                }
+                catch (OperationCanceledException)
+                    when (token.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
+                    if (token.IsCancellationRequested)
+                        throw new OperationCanceledException(token);
+        
                     failures.Add(new WebtoonEpisodeFailure(
                         episodeLink.Number,
                         ex.Message
                     ));
-
+        
                     int failedCount =
                         Interlocked.Increment(ref failed);
-
+        
                     onProgress?.Invoke(
                         new WebtoonDownloadProgress(
                             Volatile.Read(ref completed),
@@ -158,7 +182,7 @@ public sealed class WebtoonExtractionService
         }
 
         Task[] workers = Enumerable.Range(0, workerCount)
-            .Select(_ => WorkerAsync())
+            .Select(_ => WorkerAsync(cancellationToken))
             .ToArray();
 
         await Task.WhenAll(workers);

@@ -134,6 +134,8 @@ public sealed class WebtoonDownloader : IDisposable
                     );
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
+
                 File.Move(
                     temporaryPath,
                     filePath,
@@ -149,6 +151,9 @@ public sealed class WebtoonDownloader : IDisposable
             }
 
             downloaded++;
+
+            cancellationToken.ThrowIfCancellationRequested();
+            
             onProgress?.Invoke(downloaded);
             number++;
         }

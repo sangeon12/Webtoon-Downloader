@@ -23,6 +23,24 @@ public partial class MainWindow : Window
     private readonly WebtoonExtractionService _extractionService;
     private bool _isOpening;
     private ChromiumScrollController? _webtoonListScroll;
+    private CancellationTokenSource? _downloadCancellation;
+    private bool _downloadCancelRequested;
+
+    private void CancelDownload_Click(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        if (_downloadCancellation == null ||
+            _downloadCancelRequested)
+            return;
+
+        _downloadCancelRequested = true;
+
+        if (DataContext is MainWindowViewModel vm)
+            vm.StatusText = "다운로드 중지";
+
+        _downloadCancellation.Cancel();
+    }
 
     protected override async void OnClosed(EventArgs e)
     {
@@ -41,7 +59,7 @@ public partial class MainWindow : Window
         {
             _webtoonListScroll = new ChromiumScrollController(webtoonList);
         }
-        
+
         Closed += (_, _) =>
         {
             _webtoonListScroll?.Dispose();
@@ -380,6 +398,10 @@ public partial class MainWindow : Window
 
             using var downloader = new WebtoonDownloader();
 
+            _downloadCancellation?.Dispose();
+            _downloadCancellation = new CancellationTokenSource();
+            _downloadCancelRequested = false;
+
             WebtoonBatchResult result =
                 await _extractionService.ExtractAndDownloadAsync(
                     site,
@@ -389,7 +411,8 @@ public partial class MainWindow : Window
                     {
                         Dispatcher.UIThread.Post(() =>
                         {
-                            if (!showProgress)
+                            if (!showProgress ||
+                                _downloadCancellation?.IsCancellationRequested == true)
                                 return;
 
                             if (DataContext is MainWindowViewModel vm)
@@ -404,7 +427,8 @@ public partial class MainWindow : Window
                                     $"실패 {progress.Failed}화";
                             }
                         });
-                    }
+                    },
+                    _downloadCancellation.Token
                 );
 
             showProgress = false;
@@ -444,12 +468,20 @@ public partial class MainWindow : Window
                 );
             }
         }
+        catch (OperationCanceledException)
+            when (_downloadCancellation?.IsCancellationRequested == true)
+        {
+            showProgress = false;
+
+            if (DataContext is MainWindowViewModel vm)
+                vm.StatusText = "다운로드 중지";
+        }
         catch (Exception ex)
         {
             showProgress = false;
 
-            if (DataContext is MainWindowViewModel errorVm)
-                errorVm.StatusText = "다운로드 실패";
+            if (DataContext is MainWindowViewModel vm)
+                vm.StatusText = "다운로드 실패";
 
             await ShowAlertAsync(
                 $"작업 중 오류가 발생했습니다.\n{ex.Message}"
@@ -457,11 +489,17 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _downloadCancellation?.Dispose();
+            _downloadCancellation = null;
+
+            RefreshWebtoonList();
+
             showProgress = false;
             _isOpening = false;
 
             if (DataContext is MainWindowViewModel vm)
             {
+                vm.WebtoonUrl = string.Empty;
                 vm.IsBusy = false;
                 vm.IsNotBusy = true;
             }
