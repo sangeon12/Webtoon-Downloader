@@ -34,15 +34,15 @@
         <StackPanel Grid.Row="1"
                     Spacing="6"
                     IsVisible="{Binding IsBusy}">
-            
+
             <Grid ColumnDefinitions="*,Auto"
                   ColumnSpacing="10">
-            
+
                 <TextBlock Grid.Column="0"
                            Text="{Binding StatusText}"
                            TextWrapping="Wrap"
                            VerticalAlignment="Center"/>
-            
+
                 <Button Grid.Column="1"
                         Content="취소"
                         Click="CancelDownload_Click"
@@ -60,16 +60,21 @@
               RowSpacing="8">
 
             <Grid Grid.Row="0"
-                  ColumnDefinitions="*,Auto"
-                  ColumnSpacing="10">
-
+                  ColumnDefinitions="*,Auto,Auto"
+                  ColumnSpacing="8">
+                
                 <TextBlock Grid.Column="0"
                            Text="웹툰 목록"
                            FontSize="15"
                            FontWeight="SemiBold"
                            VerticalAlignment="Center"/>
-
-                <Button Grid.Column="1"
+                
+                <!-- <Button Grid.Column="1"
+                        Content="계정 등록"
+                        Click="RegisterAccount_Click"
+                        Padding="12,5"/> -->
+                
+                <Button Grid.Column="2"
                         Content="가져오기"
                         Click="ImportWebtoons_Click"
                         Padding="12,5"/>

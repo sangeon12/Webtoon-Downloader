@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Playwright;
+using Webtoon_Downloader.Sites.Naver;
+using Webtoon_Downloader.Services;
 using Webtoon_Downloader.Models;
 using Webtoon_Downloader.Sites;
 
@@ -56,7 +59,8 @@ public sealed class WebtoonExtractionService
 
         WebtoonListInfo list = await _browserService.RunPageAsync(
             targetUrl,
-            page => site.ExtractListAsync(page, targetUrl)
+            page => site.ExtractListAsync(page, targetUrl),
+            cancellationToken
         );
 
         int total = list.Episodes.Count;
@@ -97,7 +101,8 @@ public sealed class WebtoonExtractionService
                     string firstImageUrl =
                         await _browserService.RunPageAsync(
                             episodeUrl,
-                            page => site.ExtractFirstImageUrlAsync(page)
+                            page => site.ExtractFirstImageUrlAsync(page),
+                            token
                         );
         
                     token.ThrowIfCancellationRequested();
@@ -116,7 +121,7 @@ public sealed class WebtoonExtractionService
                             {
                                 if (token.IsCancellationRequested)
                                     return;
-                    
+
                                 onProgress?.Invoke(
                                     new WebtoonDownloadProgress(
                                         Volatile.Read(ref completed),
@@ -159,15 +164,14 @@ public sealed class WebtoonExtractionService
                 {
                     if (token.IsCancellationRequested)
                         throw new OperationCanceledException(token);
-        
+
                     failures.Add(new WebtoonEpisodeFailure(
                         episodeLink.Number,
                         ex.Message
                     ));
-        
-                    int failedCount =
-                        Interlocked.Increment(ref failed);
-        
+
+                    int failedCount = Interlocked.Increment(ref failed);
+
                     onProgress?.Invoke(
                         new WebtoonDownloadProgress(
                             Volatile.Read(ref completed),

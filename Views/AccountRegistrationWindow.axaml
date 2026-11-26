@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Webtoon_Downloader.Views.AccountRegistrationWindow"
+        Title="계정 등록"
+        Width="360"
+        Height="300"
+        MinWidth="320"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid Margin="20"
+          RowDefinitions="Auto,Auto,Auto,*"
+          RowSpacing="14">
+
+        <StackPanel Grid.Row="0"
+                    Spacing="6">
+
+            <TextBlock Text="사이트"
+                       FontWeight="SemiBold"/>
+
+            <ComboBox x:Name="SiteComboBox"
+                      HorizontalAlignment="Stretch"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1"
+                    Spacing="6">
+
+            <TextBlock Text="ID"
+                       FontWeight="SemiBold"/>
+
+            <TextBox x:Name="IdInput"
+                     Watermark="아이디 입력"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2"
+                    Spacing="6">
+
+            <TextBlock Text="Password"
+                       FontWeight="SemiBold"/>
+
+            <TextBox x:Name="PasswordInput"
+                     Watermark="비밀번호 입력"
+                     PasswordChar="●"/>
+
+            <TextBlock x:Name="RegistrationStatus"
+                    Grid.Row="3"
+                    TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <Grid Grid.Row="4"
+              ColumnDefinitions="*,Auto,Auto"
+              ColumnSpacing="8"
+              VerticalAlignment="Bottom">
+
+            <Button Grid.Column="1"
+                    Content="취소"
+                    Padding="16,6"
+                    Click="Close_Click"/>
+
+            <Button x:Name="RegisterButton"
+                    Grid.Column="2"
+                    Content="등록"
+                    Padding="16,6"
+                    Click="Register_Click"/>
+        </Grid>
+    </Grid>
+</Window>

@@ -23,31 +23,8 @@ public partial class MainWindow : Window
     private readonly WebtoonExtractionService _extractionService;
     private bool _isOpening;
     private ChromiumScrollController? _webtoonListScroll;
-    private CancellationTokenSource? _downloadCancellation;
+    private DownloadCancellationController? _downloadCancellation;
     private bool _downloadCancelRequested;
-
-    private void CancelDownload_Click(
-        object? sender,
-        RoutedEventArgs e)
-    {
-        if (_downloadCancellation == null ||
-            _downloadCancelRequested)
-            return;
-
-        _downloadCancelRequested = true;
-
-        if (DataContext is MainWindowViewModel vm)
-            vm.StatusText = "다운로드 중지";
-
-        _downloadCancellation.Cancel();
-    }
-
-    protected override async void OnClosed(EventArgs e)
-    {
-        base.OnClosed(e);
-
-        await _browserService.DisposeAsync();
-    }
 
     public MainWindow()
     {
@@ -70,6 +47,38 @@ public partial class MainWindow : Window
         );
 
         Opened += MainWindow_Opened;
+    }
+
+    // private async void RegisterAccount_Click(
+    //     object? sender,
+    //     RoutedEventArgs e)
+    // {
+    //     var window = new AccountRegistrationWindow();
+    
+    //     await window.ShowDialog(this);
+    // }
+
+    private void CancelDownload_Click(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        if (_downloadCancellation == null ||
+            _downloadCancellation.IsCancellationRequested)
+            return;
+
+        _downloadCancelRequested = true;
+
+        if (DataContext is MainWindowViewModel vm)
+            vm.StatusText = "다운로드 중지";
+
+        _downloadCancellation.Cancel(DownloadStopReason.User);
+    }
+
+    protected override async void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+
+        await _browserService.DisposeAsync();
     }
 
     private bool _isImporting;
@@ -256,6 +265,7 @@ public partial class MainWindow : Window
         try
         {
             WebtoonPathService.Initialize();
+            //AccountConfigService.Initialize();
 
             RefreshWebtoonList();
         }
@@ -399,7 +409,7 @@ public partial class MainWindow : Window
             using var downloader = new WebtoonDownloader();
 
             _downloadCancellation?.Dispose();
-            _downloadCancellation = new CancellationTokenSource();
+            _downloadCancellation = new DownloadCancellationController();
             _downloadCancelRequested = false;
 
             WebtoonBatchResult result =

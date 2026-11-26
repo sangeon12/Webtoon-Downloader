@@ -60,35 +60,35 @@ public sealed class BrowserService : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-    
+
         if (_browsers.Count == 0)
             await PrepareAsync(1);
-    
+
         cancellationToken.ThrowIfCancellationRequested();
-    
+
         int index = (int)(
             (uint)Interlocked.Increment(ref _nextBrowser)
             % (uint)_browsers.Count
         );
-    
+
         var browserLock = _browserLocks[index];
-    
+
         await browserLock.WaitAsync(cancellationToken);
-    
+
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-    
+
             var context = await _browsers[index].NewContextAsync();
-    
+
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-    
+
                 var page = await context.NewPageAsync();
-    
+
                 cancellationToken.ThrowIfCancellationRequested();
-    
+
                 await page.GotoAsync(
                     url.ToString(),
                     new PageGotoOptions
@@ -96,19 +96,31 @@ public sealed class BrowserService : IAsyncDisposable
                         WaitUntil = WaitUntilState.Commit
                     }
                 ).WaitAsync(cancellationToken);
-    
+
                 cancellationToken.ThrowIfCancellationRequested();
-    
+
                 T result = await operation(page)
                     .WaitAsync(cancellationToken);
-    
+
                 cancellationToken.ThrowIfCancellationRequested();
-    
+
                 return result;
             }
             finally
             {
-                await context.CloseAsync();
+                try
+                {
+                    await context.CloseAsync()
+                        .WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (TimeoutException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                }
+                catch (PlaywrightException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                }
             }
         }
         finally
