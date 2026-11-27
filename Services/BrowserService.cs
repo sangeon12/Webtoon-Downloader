@@ -57,7 +57,8 @@ public sealed class BrowserService : IAsyncDisposable
     public async Task<T> RunPageAsync<T>(
         Uri url,
         Func<IPage, Task<T>> operation,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? authState = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -79,7 +80,12 @@ public sealed class BrowserService : IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var context = await _browsers[index].NewContextAsync();
+            var context = await _browsers[index].NewContextAsync(
+                new BrowserNewContextOptions
+                {
+                    StorageState = authState
+                }
+            );
 
             try
             {

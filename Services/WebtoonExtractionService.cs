@@ -51,7 +51,8 @@ public sealed class WebtoonExtractionService
         Uri inputUrl,
         WebtoonDownloader downloader,
         Action<WebtoonDownloadProgress>? onProgress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? authState = null)
     {
         Uri targetUrl = site.NormalizeUrl(inputUrl);
 
@@ -60,7 +61,8 @@ public sealed class WebtoonExtractionService
         WebtoonListInfo list = await _browserService.RunPageAsync(
             targetUrl,
             page => site.ExtractListAsync(page, targetUrl),
-            cancellationToken
+            cancellationToken,
+            authState
         );
 
         int total = list.Episodes.Count;
@@ -102,7 +104,8 @@ public sealed class WebtoonExtractionService
                         await _browserService.RunPageAsync(
                             episodeUrl,
                             page => site.ExtractFirstImageUrlAsync(page),
-                            token
+                            token,
+                            authState
                         );
         
                     token.ThrowIfCancellationRequested();

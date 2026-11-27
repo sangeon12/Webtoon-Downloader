@@ -14,6 +14,7 @@ namespace Webtoon_Downloader.Sites.Naver;
 
 public class NaverWebtoon : IWebtoonSite
 {
+
     public bool CanHandle(Uri url)
     {
         if(url.AbsoluteUri.Contains("comic.naver.com")) return true;
@@ -61,6 +62,17 @@ public class NaverWebtoon : IWebtoonSite
         IPage page,
         Uri url)
     {
+
+        string authPath = Path.Combine(
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+            "Webtoon-Downloader",
+            "Auth",
+            "Naver.json"
+        );
+
+        bool hasAuthenticationData = File.Exists(authPath);
+
         string title = (await page.Locator(
             ".EpisodeListInfo__title--mYLjC"
         ).InnerTextAsync()).Trim();
@@ -151,5 +163,25 @@ public class NaverWebtoon : IWebtoonSite
             throw new Exception("첫 이미지 URL을 찾을 수 없습니다.");
     
         return imageUrl;
+    }
+
+    public bool IsLoginPage(string url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && uri.Host.Equals(
+                "nid.naver.com",
+                StringComparison.OrdinalIgnoreCase)
+            && uri.AbsolutePath.Equals(
+                "/nidlogin.login",
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    public Task<string> AuthenticateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return NaverAuthentication.RunAsync(
+            this,
+            cancellationToken
+        );
     }
 }

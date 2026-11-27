@@ -5,9 +5,10 @@ using System.Linq;
 using System.Diagnostics;
 using Avalonia.Threading;
 using Avalonia;
-using Avalonia.Controls.Presenters;
+using Avalonia.VisualTree;
 using Avalonia.Styling;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -367,6 +368,16 @@ public sealed class StealthViewerWindow : Window
         PointerPressedEventArgs e)
     {
         var properties = e.GetCurrentPoint(this).Properties;
+
+        if (e.Source is Avalonia.Visual source)
+        {
+            if (source.GetSelfAndVisualAncestors()
+                .OfType<Avalonia.Controls.Primitives.ScrollBar>()
+                .Any())
+            {
+                return;
+            }
+        }
 
         if (properties.IsRightButtonPressed)
         {

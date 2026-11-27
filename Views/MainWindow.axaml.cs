@@ -394,8 +394,85 @@ public partial class MainWindow : Window
         }
 
         _isOpening = true;
-        bool showProgress = true;
 
+        try
+        {
+            if (DataContext is MainWindowViewModel startVm)
+            {
+                startVm.IsBusy = true;
+                startVm.IsNotBusy = false;
+                startVm.Progress = 0;
+                startVm.StatusText = "로그인 상태 확인 중...";
+            }
+
+            _downloadCancellation?.Dispose();
+            _downloadCancellation = new DownloadCancellationController();
+            _downloadCancelRequested = false;
+
+            CancellationToken token = _downloadCancellation.Token;
+
+            bool requiresLogin = await LoginResolver.RequiresLoginAsync(
+                site,
+                url,
+                token
+            );
+
+            string? authState = null;
+
+            if (requiresLogin)
+            {
+                if (DataContext is MainWindowViewModel vm)
+                    vm.StatusText = "로그인 인증 중...";
+            
+                authState = await site.AuthenticateAsync(token);
+            }
+            
+            token.ThrowIfCancellationRequested();
+            
+            await DownloadWebtoonAsync(
+                site,
+                url,
+                authState
+            );
+        }
+        catch (OperationCanceledException)
+            when (_downloadCancellation?.IsCancellationRequested == true)
+        {
+            if (DataContext is MainWindowViewModel vm)
+                vm.StatusText = "다운로드 중지";
+        }
+        catch (Exception)
+        {
+            if (DataContext is MainWindowViewModel vm)
+                vm.StatusText = "다운로드 실패";
+
+            await ShowAlertAsync("다운로드 실패");
+        }
+        finally
+        {
+            _downloadCancellation?.Dispose();
+            _downloadCancellation = null;
+
+            RefreshWebtoonList();
+
+            _isOpening = false;
+
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.WebtoonUrl = string.Empty;
+                vm.IsBusy = false;
+                vm.IsNotBusy = true;
+            }
+        }
+    }
+
+    private async Task DownloadWebtoonAsync(
+        IWebtoonSite site,
+        Uri url,
+        string? authState)
+    {
+        bool showProgress = true;
+    
         try
         {
             if (DataContext is MainWindowViewModel startVm)
@@ -405,13 +482,9 @@ public partial class MainWindow : Window
                 startVm.Progress = 0;
                 startVm.StatusText = "웹툰 정보 수집 중...";
             }
-
+    
             using var downloader = new WebtoonDownloader();
-
-            _downloadCancellation?.Dispose();
-            _downloadCancellation = new DownloadCancellationController();
-            _downloadCancelRequested = false;
-
+    
             WebtoonBatchResult result =
                 await _extractionService.ExtractAndDownloadAsync(
                     site,
@@ -424,13 +497,13 @@ public partial class MainWindow : Window
                             if (!showProgress ||
                                 _downloadCancellation?.IsCancellationRequested == true)
                                 return;
-
+    
                             if (DataContext is MainWindowViewModel vm)
                             {
                                 vm.Progress =
                                     (progress.Completed + progress.Failed)
                                     * 100.0 / progress.Total;
-
+    
                                 vm.StatusText =
                                     $"전체 {progress.Total}화 | " +
                                     $"다운로드 완료 {progress.Completed}화 | " +
@@ -438,29 +511,30 @@ public partial class MainWindow : Window
                             }
                         });
                     },
-                    _downloadCancellation.Token
+                    _downloadCancellation!.Token,
+                    authState
                 );
-
+    
             showProgress = false;
-
+    
             if (DataContext is MainWindowViewModel resultVm)
             {
                 resultVm.Progress = 100;
-
+    
                 resultVm.StatusText =
                     $"작업 종료 | 성공 {result.Completed}화 | " +
                     $"실패 {result.Failed}화";
             }
-
+    
             if (result.Failed == 0)
             {
                 RefreshWebtoonList();
-
+    
                 if (DataContext is MainWindowViewModel vm)
                 {
                     vm.StatusText =
                         $"{result.Info.Title} - 전체 다운로드 완료";
-
+    
                     vm.WebtoonUrl = "";
                 }
             }
@@ -472,7 +546,7 @@ public partial class MainWindow : Window
                         .Take(5)
                         .Select(x => $"{x.Number}화: {x.Error}")
                 );
-
+    
                 await ShowAlertAsync(
                     $"다운로드 실패: {result.Failed}개 회차\n\n{errors}"
                 );
@@ -482,37 +556,22 @@ public partial class MainWindow : Window
             when (_downloadCancellation?.IsCancellationRequested == true)
         {
             showProgress = false;
-
+    
             if (DataContext is MainWindowViewModel vm)
                 vm.StatusText = "다운로드 중지";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             showProgress = false;
-
+    
             if (DataContext is MainWindowViewModel vm)
                 vm.StatusText = "다운로드 실패";
-
-            await ShowAlertAsync(
-                $"작업 중 오류가 발생했습니다.\n{ex.Message}"
-            );
+    
+            await ShowAlertAsync("다운로드 실패");
         }
         finally
         {
-            _downloadCancellation?.Dispose();
-            _downloadCancellation = null;
-
-            RefreshWebtoonList();
-
             showProgress = false;
-            _isOpening = false;
-
-            if (DataContext is MainWindowViewModel vm)
-            {
-                vm.WebtoonUrl = string.Empty;
-                vm.IsBusy = false;
-                vm.IsNotBusy = true;
-            }
         }
     }
 
